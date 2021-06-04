@@ -1,6 +1,5 @@
 package ecs
 
-
 import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
@@ -12,7 +11,7 @@ import (
 type Fn func() error
 
 type CallbackTask struct {
-	Log       *logrus.Entry
+	Log        *logrus.Entry
 	Token      string
 	HBInterval string
 	Sess       *session.Session
@@ -25,7 +24,6 @@ type CallbackTask struct {
 func (ct *CallbackTask) RegisterWorkerFunc(fn Fn) {
 	ct.fn = fn
 }
-
 
 func (ct *CallbackTask) sendHeartbeat() {
 	_, err := ct.sfnClient.SendTaskHeartbeat(&sfn.SendTaskHeartbeatInput{
