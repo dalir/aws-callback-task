@@ -1,4 +1,4 @@
-module github.com/dalir/ecs-callback-task
+module github.com/dalir/aws-callback-task/ecs
 
 go 1.16
 
