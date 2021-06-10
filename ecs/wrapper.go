@@ -120,7 +120,7 @@ func (ct *CallbackTask) sendFailure(errMsg error) {
 	if err != nil {
 		ct.Log.Fatalf("Failed in sendFailure. %v", err)
 	}
-	ct.Log.Infof("Successfully sent SendTaskFailure back to sfn. Error message %v", err)
+	ct.Log.Errorf("Successfully sent SendTaskFailure back to sfn. Error message %v", err)
 }
 
 func (ct *CallbackTask) init() {
