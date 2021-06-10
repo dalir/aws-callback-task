@@ -94,17 +94,17 @@ func (ct *CallbackTask) getInstanceAction(token string) (spotMsg InterruptionMgs
 func (ct *CallbackTask) checkSpotInterruption() {
 	token, err := ct.getMetadataToken()
 	if err != nil {
-		ct.returnChan <- err
+		ct.Log.Warnf("Failed to retrieve Metadata Token. %v", err)
 	}
 	spotMsg, err := ct.getInstanceAction(token)
 	if err != nil {
-		ct.returnChan <- err
+		ct.Log.Warnf("Failed to retrieve Metadata Insgance Action. %v", err)
 	}
 	ct.Log.Debugf("Successfully Checked Spot Instance Interruption")
 
 	emptyMsg := InterruptionMgs{}
 	if spotMsg != emptyMsg {
-		ct.Log.Warnf("Spot Interruption:  %+v", spotMsg)
+		ct.Log.Warnf("Spot Interruption Forced:  %+v", spotMsg)
 		err = fmt.Errorf("InstanceInterruption")
 		ct.returnChan <- err
 	}
