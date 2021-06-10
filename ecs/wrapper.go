@@ -91,6 +91,7 @@ func (ct *CallbackTask) checkSpotInterruption() {
 	if err != nil {
 		ct.returnChan <- err
 	}
+	ct.Log.Debugf("Successfully Checked Spot Instance Interruption")
 
 	emptyMsg := InterruptionMgs{}
 	if spotMsg != emptyMsg {
