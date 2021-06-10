@@ -14,6 +14,10 @@ import (
 
 type Fn func() error
 
+const HB_TICKER_RETRY = 3
+
+var hbRetryCounter = 0
+
 type CallbackTask struct {
 	Log        *logrus.Entry
 	Token      string
@@ -35,9 +39,14 @@ func (ct *CallbackTask) sendHeartbeat() {
 		TaskToken: aws.String(ct.Token),
 	})
 	if err != nil {
-		ct.returnChan <- err
+		hbRetryCounter++
+		ct.Log.Warnf("sent SendTaskHeartbeat failed. Retry number: %d, Error: %v", hbRetryCounter, err)
+		if hbRetryCounter == HB_TICKER_RETRY {
+			ct.returnChan <- err
+		}
+	} else {
+		ct.Log.Debugf("Successfully sent SendTaskHeartbeat back to sfn")
 	}
-	ct.Log.Debugf("Successfully sent SendTaskHeartbeat back to sfn")
 }
 
 type InterruptionMgs struct {
@@ -91,6 +100,7 @@ func (ct *CallbackTask) checkSpotInterruption() {
 	if err != nil {
 		ct.returnChan <- err
 	}
+	ct.Log.Debugf("Successfully Checked Spot Instance Interruption")
 
 	emptyMsg := InterruptionMgs{}
 	if spotMsg != emptyMsg {
