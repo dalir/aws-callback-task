@@ -1,10 +1,14 @@
 package ecs
 
 import (
+	"encoding/json"
+	"fmt"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/sfn"
 	"github.com/sirupsen/logrus"
+	"io"
+	"net/http"
 	"time"
 )
 
@@ -16,7 +20,8 @@ type CallbackTask struct {
 	HBInterval string
 	Sess       *session.Session
 	sfnClient  *sfn.SFN
-	ticker     *time.Ticker
+	hbTicker   *time.Ticker
+	siTicker   *time.Ticker
 	fn         Fn
 	returnChan chan error
 }
@@ -33,6 +38,66 @@ func (ct *CallbackTask) sendHeartbeat() {
 		ct.returnChan <- err
 	}
 	ct.Log.Debugf("Successfully sent SendTaskHeartbeat back to sfn")
+}
+
+type InterruptionMgs struct {
+	Action string    `json:"action"`
+	Time   time.Time `json:"time"`
+}
+
+func (ct *CallbackTask) getMetadataToken() (token string, err error) {
+	client := &http.Client{}
+	req, err := http.NewRequest("PUT", "http://169.254.169.254/latest/api/token", nil)
+	if err != nil {
+		return
+	}
+	req.Header.Add("X-aws-ec2-metadata-token-ttl-seconds", "30")
+	resp, err := client.Do(req)
+	if err != nil {
+		return
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	token = string(body)
+	return
+}
+
+func (ct *CallbackTask) getInstanceAction(token string) (spotMsg InterruptionMgs, err error) {
+	client := &http.Client{}
+	req, err := http.NewRequest("GET", "http://169.254.169.254/latest/meta-data/spot/instance-action", nil)
+	if err != nil {
+		return
+	}
+	req.Header.Add("X-aws-ec2-metadata-token", token)
+	resp, err := client.Do(req)
+	if err != nil {
+		return
+	}
+	defer resp.Body.Close()
+	msg, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return
+	}
+	json.Unmarshal(msg, &spotMsg)
+	return
+}
+
+func (ct *CallbackTask) checkSpotInterruption() {
+	token, err := ct.getMetadataToken()
+	if err != nil {
+		ct.returnChan <- err
+	}
+	spotMsg, err := ct.getInstanceAction(token)
+	if err != nil {
+		ct.returnChan <- err
+	}
+
+	emptyMsg := InterruptionMgs{}
+	if spotMsg != emptyMsg {
+		ct.Log.Warnf("Spot Interruption:  %+v", spotMsg)
+		err = fmt.Errorf("InstanceInterruption")
+		ct.returnChan <- err
+	}
 }
 
 func (ct *CallbackTask) sendSuccess() {
@@ -55,7 +120,7 @@ func (ct *CallbackTask) sendFailure(errMsg error) {
 	if err != nil {
 		ct.Log.Fatalf("Failed in sendFailure. %v", err)
 	}
-	ct.Log.Info("Successfully sent SendTaskFailure back to sfn")
+	ct.Log.Infof("Successfully sent SendTaskFailure back to sfn. Error message %v", err)
 }
 
 func (ct *CallbackTask) init() {
@@ -66,12 +131,13 @@ func (ct *CallbackTask) init() {
 		ct.sendFailure(err)
 		ct.Log.Fatalf("Failed to Parse Heartbeat Duration. %v", err)
 	}
-	ct.ticker = time.NewTicker(interval)
+	ct.hbTicker = time.NewTicker(interval)
+	ct.siTicker = time.NewTicker(time.Minute)
 }
 
 func (ct *CallbackTask) Run() {
 	ct.init()
-	defer ct.ticker.Stop()
+	defer ct.hbTicker.Stop()
 	go func() {
 		err := ct.fn()
 		ct.returnChan <- err
@@ -86,8 +152,10 @@ func (ct *CallbackTask) Run() {
 			}
 			ct.sendSuccess()
 			return
-		case <-ct.ticker.C:
+		case <-ct.hbTicker.C:
 			ct.sendHeartbeat()
+		case <-ct.siTicker.C:
+			ct.checkSpotInterruption()
 		}
 	}
 }
