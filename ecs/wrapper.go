@@ -142,7 +142,7 @@ func (ct *CallbackTask) init() {
 		ct.Log.Fatalf("Failed to Parse Heartbeat Duration. %v", err)
 	}
 	ct.hbTicker = time.NewTicker(interval)
-	ct.siTicker = time.NewTicker(time.Minute)
+	ct.siTicker = time.NewTicker(110 * time.Second)
 }
 
 func (ct *CallbackTask) Run() {
