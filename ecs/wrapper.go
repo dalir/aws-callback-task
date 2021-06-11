@@ -99,8 +99,9 @@ func (ct *CallbackTask) checkSpotInterruption() {
 	spotMsg, err := ct.getInstanceAction(token)
 	if err != nil {
 		ct.Log.Warnf("Failed to retrieve Metadata Insgance Action. %v", err)
+	} else {
+		ct.Log.Debugf("Successfully Checked Spot Instance Interruption")
 	}
-	ct.Log.Debugf("Successfully Checked Spot Instance Interruption")
 
 	emptyMsg := InterruptionMgs{}
 	if spotMsg != emptyMsg {
@@ -148,6 +149,7 @@ func (ct *CallbackTask) init() {
 func (ct *CallbackTask) Run() {
 	ct.init()
 	defer ct.hbTicker.Stop()
+	defer ct.siTicker.Stop()
 	go func() {
 		err := ct.fn()
 		ct.returnChan <- err
