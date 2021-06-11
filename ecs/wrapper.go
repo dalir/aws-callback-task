@@ -165,9 +165,9 @@ func (ct *CallbackTask) Run() {
 			ct.sendSuccess()
 			return
 		case <-ct.hbTicker.C:
-			ct.sendHeartbeat()
+			go ct.sendHeartbeat()
 		case <-ct.siTicker.C:
-			ct.checkSpotInterruption()
+			go ct.checkSpotInterruption()
 		}
 	}
 }
