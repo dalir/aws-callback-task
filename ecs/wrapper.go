@@ -153,23 +153,21 @@ func (ct *CallbackTask) Run() {
 		ct.returnChan <- err
 	}()
 
-	go func() {
-		for {
-			select {
-			case err := <-ct.returnChan:
-				if err != nil {
-					ct.sendFailure(err)
-					ct.Log.Fatalf("%v", err)
-				}
-				ct.sendSuccess()
-				return
-			case <-ct.hbTicker.C:
-				go ct.sendHeartbeat()
-			case <-ct.siTicker.C:
-				if ct.CheckSpotInterrupt {
-					go ct.checkSpotInterruption()
-				}
+	for {
+		select {
+		case err := <-ct.returnChan:
+			if err != nil {
+				ct.sendFailure(err)
+				ct.Log.Fatalf("%v", err)
+			}
+			ct.sendSuccess()
+			return
+		case <-ct.hbTicker.C:
+			go ct.sendHeartbeat()
+		case <-ct.siTicker.C:
+			if ct.CheckSpotInterrupt {
+				go ct.checkSpotInterruption()
 			}
 		}
-	}()
+	}
 }
