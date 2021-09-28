@@ -135,7 +135,7 @@ func (ct *CallbackTask) sendFailure(errMsg error) {
 	ct.Log.Errorf("Successfully sent SendTaskFailure back to sfn. Error message %v", err)
 }
 
-func (ct *CallbackTask) init() {
+func (ct *CallbackTask) Run() {
 	ct.sfnClient = sfn.New(ct.Sess)
 	ct.returnChan = make(chan error, 10)
 	interval, err := time.ParseDuration(ct.HBInterval)
@@ -145,32 +145,31 @@ func (ct *CallbackTask) init() {
 	}
 	ct.hbTicker = time.NewTicker(interval)
 	ct.siTicker = time.NewTicker(110 * time.Second)
-}
-
-func (ct *CallbackTask) Run() {
-	ct.init()
 	defer ct.hbTicker.Stop()
 	defer ct.siTicker.Stop()
+
 	go func() {
 		err := ct.fn()
 		ct.returnChan <- err
 	}()
 
-	for {
-		select {
-		case err := <-ct.returnChan:
-			if err != nil {
-				ct.sendFailure(err)
-				ct.Log.Fatalf("%v", err)
-			}
-			ct.sendSuccess()
-			return
-		case <-ct.hbTicker.C:
-			go ct.sendHeartbeat()
-		case <-ct.siTicker.C:
-			if ct.CheckSpotInterrupt {
-				go ct.checkSpotInterruption()
+	go func() {
+		for {
+			select {
+			case err := <-ct.returnChan:
+				if err != nil {
+					ct.sendFailure(err)
+					ct.Log.Fatalf("%v", err)
+				}
+				ct.sendSuccess()
+				return
+			case <-ct.hbTicker.C:
+				go ct.sendHeartbeat()
+			case <-ct.siTicker.C:
+				if ct.CheckSpotInterrupt {
+					go ct.checkSpotInterruption()
+				}
 			}
 		}
-	}
+	}()
 }
