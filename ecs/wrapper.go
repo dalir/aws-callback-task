@@ -9,6 +9,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"io"
 	"net/http"
+	"sync"
 	"time"
 )
 
@@ -152,22 +153,27 @@ func (ct *CallbackTask) Run() {
 		err := ct.fn()
 		ct.returnChan <- err
 	}()
-
-	for {
-		select {
-		case err := <-ct.returnChan:
-			if err != nil {
-				ct.sendFailure(err)
-				ct.Log.Fatalf("%v", err)
-			}
-			ct.sendSuccess()
-			return
-		case <-ct.hbTicker.C:
-			go ct.sendHeartbeat()
-		case <-ct.siTicker.C:
-			if ct.CheckSpotInterrupt {
-				go ct.checkSpotInterruption()
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		for {
+			select {
+			case err := <-ct.returnChan:
+				if err != nil {
+					ct.sendFailure(err)
+					ct.Log.Fatalf("%v", err)
+					wg.Done()
+				}
+				ct.sendSuccess()
+				wg.Done()
+			case <-ct.hbTicker.C:
+				go ct.sendHeartbeat()
+			case <-ct.siTicker.C:
+				if ct.CheckSpotInterrupt {
+					go ct.checkSpotInterruption()
+				}
 			}
 		}
-	}
+	}()
+	wg.Wait()
 }
