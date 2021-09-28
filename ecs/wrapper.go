@@ -19,15 +19,16 @@ const HB_TICKER_RETRY = 3
 var hbRetryCounter = 0
 
 type CallbackTask struct {
-	Log        *logrus.Entry
-	Token      string
-	HBInterval string
-	Sess       *session.Session
-	sfnClient  *sfn.SFN
-	hbTicker   *time.Ticker
-	siTicker   *time.Ticker
-	fn         Fn
-	returnChan chan error
+	Log                *logrus.Entry
+	Token              string
+	HBInterval         string
+	CheckSpotInterrupt bool
+	Sess               *session.Session
+	sfnClient          *sfn.SFN
+	hbTicker           *time.Ticker
+	siTicker           *time.Ticker
+	fn                 Fn
+	returnChan         chan error
 }
 
 func (ct *CallbackTask) RegisterWorkerFunc(fn Fn) {
@@ -167,7 +168,9 @@ func (ct *CallbackTask) Run() {
 		case <-ct.hbTicker.C:
 			go ct.sendHeartbeat()
 		case <-ct.siTicker.C:
-			go ct.checkSpotInterruption()
+			if ct.CheckSpotInterrupt {
+				go ct.checkSpotInterruption()
+			}
 		}
 	}
 }
