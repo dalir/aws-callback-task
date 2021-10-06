@@ -16,8 +16,12 @@ import (
 type Fn func() error
 
 const HB_TICKER_RETRY = 3
+const SEND_SUCCESS_RETRY = 3
+const SEND_FAILURE_RETRY = 3
 
 var hbRetryCounter = 0
+var successRetryCounter = 0
+var failureRetryCounter = 0
 
 type CallbackTask struct {
 	Log                *logrus.Entry
@@ -119,9 +123,17 @@ func (ct *CallbackTask) sendSuccess() {
 		TaskToken: aws.String(ct.Token),
 	})
 	if err != nil {
-		ct.Log.Fatalf("Failed in sendSuccess. %v", err)
+		if successRetryCounter == SEND_SUCCESS_RETRY {
+			ct.Log.Fatalf("Failed in sendSuccess. %v", err)
+		} else {
+			successRetryCounter++
+			ct.Log.Warnf("Failed in sendSuccess. %v, retry counter: %d", err, successRetryCounter)
+			time.Sleep(5 * time.Second)
+			ct.sendSuccess()
+		}
+	} else {
+		ct.Log.Info("Successfully sent SendTaskSuccess back to sfn")
 	}
-	ct.Log.Info("Successfully sent SendTaskSuccess back to sfn")
 
 }
 
@@ -131,9 +143,17 @@ func (ct *CallbackTask) sendFailure(errMsg error) {
 		TaskToken: aws.String(ct.Token),
 	})
 	if err != nil {
-		ct.Log.Fatalf("Failed in sendFailure. %v", err)
+		if failureRetryCounter == SEND_FAILURE_RETRY {
+			ct.Log.Fatalf("Failed in sendFailure. %v", err)
+		} else {
+			failureRetryCounter++
+			ct.Log.Warnf("Failed in sendFailure. %v, retry counter: %d", err, failureRetryCounter)
+			time.Sleep(5 * time.Second)
+			ct.sendFailure(errMsg)
+		}
+	} else {
+		ct.Log.Errorf("Successfully sent SendTaskFailure back to sfn. Error message %v", err)
 	}
-	ct.Log.Errorf("Successfully sent SendTaskFailure back to sfn. Error message %v", err)
 }
 
 func (ct *CallbackTask) Run() {
