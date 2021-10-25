@@ -9,7 +9,10 @@ import (
 	"github.com/sirupsen/logrus"
 	"io"
 	"net/http"
+	"os"
+	"os/signal"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -34,6 +37,7 @@ type CallbackTask struct {
 	siTicker           *time.Ticker
 	fn                 Fn
 	returnChan         chan error
+	sigsChan           chan os.Signal
 }
 
 func (ct *CallbackTask) RegisterWorkerFunc(fn Fn) {
@@ -111,10 +115,14 @@ func (ct *CallbackTask) checkSpotInterruption() {
 
 	emptyMsg := InterruptionMgs{}
 	if spotMsg != emptyMsg {
-		ct.Log.Warnf("Spot Interruption Forced:  %+v", spotMsg)
-		err = fmt.Errorf("InstanceInterruption")
-		ct.returnChan <- err
+		ct.spotInterrupted(spotMsg.Action)
 	}
+}
+
+func (ct *CallbackTask) spotInterrupted(message string) {
+	ct.Log.Warnf("Spot Interruption Forced: %s", message)
+	err := fmt.Errorf("InstanceInterruption")
+	ct.returnChan <- err
 }
 
 func (ct *CallbackTask) sendSuccess() {
@@ -159,6 +167,9 @@ func (ct *CallbackTask) sendFailure(errMsg error) {
 func (ct *CallbackTask) Run() {
 	ct.sfnClient = sfn.New(ct.Sess)
 	ct.returnChan = make(chan error, 10)
+	ct.sigsChan = make(chan os.Signal, 1)
+	signal.Notify(ct.sigsChan, syscall.SIGTERM)
+
 	interval, err := time.ParseDuration(ct.HBInterval)
 	if err != nil {
 		ct.sendFailure(err)
@@ -189,8 +200,12 @@ func (ct *CallbackTask) Run() {
 			case <-ct.hbTicker.C:
 				go ct.sendHeartbeat()
 			case <-ct.siTicker.C:
-				if ct.CheckSpotInterrupt {
+				if ct.CheckSpotInterrupt && (os.Getenv("AWS_EXECUTION_ENV") == "AWS_ECS_EC2") {
 					go ct.checkSpotInterruption()
+				}
+			case sig := <-ct.sigsChan:
+				if ct.CheckSpotInterrupt && (os.Getenv("AWS_EXECUTION_ENV") == "AWS_ECS_FARGATE") {
+					go ct.spotInterrupted(sig.String())
 				}
 			}
 		}
