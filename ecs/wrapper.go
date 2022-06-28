@@ -16,7 +16,7 @@ import (
 	"time"
 )
 
-type Fn func() error
+type Fn func() (string, error)
 
 const HB_TICKER_RETRY = 3
 const SEND_SUCCESS_RETRY = 3
@@ -25,6 +25,11 @@ const SEND_FAILURE_RETRY = 3
 var hbRetryCounter = 0
 var successRetryCounter = 0
 var failureRetryCounter = 0
+
+type CallbackOutput struct {
+	Err        error
+	JsonOutput string
+}
 
 type CallbackTask struct {
 	Log                *logrus.Entry
@@ -36,7 +41,7 @@ type CallbackTask struct {
 	hbTicker           *time.Ticker
 	siTicker           *time.Ticker
 	fn                 Fn
-	returnChan         chan error
+	returnChan         chan CallbackOutput
 	sigsChan           chan os.Signal
 }
 
@@ -52,7 +57,9 @@ func (ct *CallbackTask) sendHeartbeat() {
 		hbRetryCounter++
 		ct.Log.Warnf("sent SendTaskHeartbeat failed. Retry number: %d, Error: %v", hbRetryCounter, err)
 		if hbRetryCounter == HB_TICKER_RETRY {
-			ct.returnChan <- err
+			ct.returnChan <- CallbackOutput{
+				Err: err,
+			}
 		}
 	} else {
 		ct.Log.Debugf("Successfully sent SendTaskHeartbeat back to sfn")
@@ -122,12 +129,17 @@ func (ct *CallbackTask) checkSpotInterruption() {
 func (ct *CallbackTask) spotInterrupted(message string) {
 	ct.Log.Warnf("Spot Interruption Forced: %s", message)
 	err := fmt.Errorf("InstanceInterruption")
-	ct.returnChan <- err
+	ct.returnChan <- CallbackOutput{
+		Err: err,
+	}
 }
 
-func (ct *CallbackTask) sendSuccess() {
+func (ct *CallbackTask) sendSuccess(jsonString string) {
+	if jsonString == "" {
+		jsonString = `{"Report": "the task is completed successfully"}`
+	}
 	_, err := ct.sfnClient.SendTaskSuccess(&sfn.SendTaskSuccessInput{
-		Output:    aws.String(`{"Report": "the task is completed successfully"}`),
+		Output:    aws.String(jsonString),
 		TaskToken: aws.String(ct.Token),
 	})
 	if err != nil {
@@ -137,7 +149,7 @@ func (ct *CallbackTask) sendSuccess() {
 			successRetryCounter++
 			ct.Log.Warnf("Failed in sendSuccess. %v, retry counter: %d", err, successRetryCounter)
 			time.Sleep(5 * time.Second)
-			ct.sendSuccess()
+			ct.sendSuccess(jsonString)
 		}
 	} else {
 		ct.Log.Info("Successfully sent SendTaskSuccess back to sfn")
@@ -166,7 +178,7 @@ func (ct *CallbackTask) sendFailure(errMsg error) {
 
 func (ct *CallbackTask) Run() {
 	ct.sfnClient = sfn.New(ct.Sess)
-	ct.returnChan = make(chan error, 10)
+	ct.returnChan = make(chan CallbackOutput, 10)
 	ct.sigsChan = make(chan os.Signal, 1)
 	signal.Notify(ct.sigsChan, syscall.SIGTERM)
 
@@ -181,21 +193,24 @@ func (ct *CallbackTask) Run() {
 	defer ct.siTicker.Stop()
 
 	go func() {
-		err := ct.fn()
-		ct.returnChan <- err
+		output, err := ct.fn()
+		ct.returnChan <- CallbackOutput{
+			Err:        err,
+			JsonOutput: output,
+		}
 	}()
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
 		for {
 			select {
-			case err := <-ct.returnChan:
-				if err != nil {
+			case callbackOutput := <-ct.returnChan:
+				if callbackOutput.Err != nil {
 					ct.sendFailure(err)
 					ct.Log.Fatalf("%v", err)
 					wg.Done()
 				}
-				ct.sendSuccess()
+				ct.sendSuccess(callbackOutput.JsonOutput)
 				wg.Done()
 			case <-ct.hbTicker.C:
 				go ct.sendHeartbeat()
