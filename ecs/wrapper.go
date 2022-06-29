@@ -206,8 +206,8 @@ func (ct *CallbackTask) Run() {
 			select {
 			case callbackOutput := <-ct.returnChan:
 				if callbackOutput.Err != nil {
-					ct.sendFailure(err)
-					ct.Log.Fatalf("%v", err)
+					ct.sendFailure(callbackOutput.Err)
+					ct.Log.Fatalf("%v", callbackOutput.Err)
 					wg.Done()
 				}
 				ct.sendSuccess(callbackOutput.JsonOutput)
