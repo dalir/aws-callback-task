@@ -172,7 +172,7 @@ func (ct *CallbackTask) sendFailure(errMsg error) {
 			ct.sendFailure(errMsg)
 		}
 	} else {
-		ct.Log.Errorf("Successfully sent SendTaskFailure back to sfn. Error message %v", err)
+		ct.Log.Errorf("Successfully sent SendTaskFailure back to sfn. Error message: %s", errMsg.Error())
 	}
 }
 
