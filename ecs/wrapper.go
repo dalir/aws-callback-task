@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/sfn"
-	"github.com/sirupsen/logrus"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -39,10 +39,10 @@ type CallbackOutput struct {
 // CallbackTask handles the execution of a task that communicates
 // with AWS Step Functions and handles spot instance interruptions.
 type CallbackTask struct {
-	Log                *logrus.Entry // Logger for logging events.
-	Token              string        // Task token for communicating with AWS Step Functions.
-	HBInterval         string        // Heartbeat interval duration string. A duration string is a possibly signed sequence of decimal numbers, each with optional fraction and a unit suffix, such as "300ms", "-1.5h" or "2h45m". Valid time units are "ns", "us" (or "µs"), "ms", "s", "m", "h".
-	CheckSpotInterrupt bool          // Flag to check for spot instance interruptions.
+	Log                *slog.Logger // Logger for logging events.
+	Token              string       // Task token for communicating with AWS Step Functions.
+	HBInterval         string       // Heartbeat interval duration string. A duration string is a possibly signed sequence of decimal numbers, each with optional fraction and a unit suffix, such as "300ms", "-1.5h" or "2h45m". Valid time units are "ns", "us" (or "µs"), "ms", "s", "m", "h".
+	CheckSpotInterrupt bool         // Flag to check for spot instance interruptions.
 	AWSCfg             aws.Config
 	sfnClient          *sfn.Client         // AWS Step Functions client.
 	hbTicker           *time.Ticker        // Ticker for sending heartbeats.
@@ -65,14 +65,14 @@ func (ct *CallbackTask) sendHeartbeat() {
 	})
 	if err != nil {
 		hbRetryCounter++
-		ct.Log.Warnf("SendTaskHeartbeat failed. Retry number: %d, Error: %v", hbRetryCounter, err)
+		ct.Log.Warn(fmt.Sprintf("SendTaskHeartbeat failed. Retry number: %d, Error: %v", hbRetryCounter, err))
 		if hbRetryCounter == HB_TICKER_RETRY {
 			ct.returnChan <- CallbackOutput{
 				Err: err,
 			}
 		}
 	} else {
-		ct.Log.Debugf("Successfully sent SendTaskHeartbeat to Step Functions")
+		ct.Log.Debug("Successfully sent SendTaskHeartbeat to Step Functions")
 	}
 }
 
@@ -131,13 +131,13 @@ func (ct *CallbackTask) getInstanceAction(token string) (spotMsg InterruptionMgs
 func (ct *CallbackTask) checkSpotInterruption() {
 	token, err := ct.getMetadataToken()
 	if err != nil {
-		ct.Log.Warnf("Failed to retrieve Metadata Token. %v", err)
+		ct.Log.Warn(fmt.Sprintf("Failed to retrieve Metadata Token. %v", err))
 	}
 	spotMsg, err := ct.getInstanceAction(token)
 	if err != nil {
-		ct.Log.Warnf("Failed to retrieve Metadata Instance Action. %v", err)
+		ct.Log.Warn(fmt.Sprintf("Failed to retrieve Metadata Instance Action. %v", err))
 	} else {
-		ct.Log.Debugf("Successfully checked Spot Instance Interruption")
+		ct.Log.Debug("Successfully checked Spot Instance Interruption")
 	}
 
 	emptyMsg := InterruptionMgs{}
@@ -149,7 +149,7 @@ func (ct *CallbackTask) checkSpotInterruption() {
 // spotInterrupted handles the event when a spot instance is interrupted.
 // It logs the interruption and returns an error via the callback channel.
 func (ct *CallbackTask) spotInterrupted(message string) {
-	ct.Log.Warnf("Spot Interruption Forced: %s", message)
+	ct.Log.Warn(fmt.Sprintf("Spot Interruption Forced: %s", message))
 	err := fmt.Errorf("InstanceInterruption")
 	ct.returnChan <- CallbackOutput{
 		Err: err,
@@ -168,10 +168,10 @@ func (ct *CallbackTask) sendSuccess(jsonString string) {
 	})
 	if err != nil {
 		if successRetryCounter == SEND_SUCCESS_RETRY {
-			ct.Log.Fatalf("Failed in sendSuccess. %v", err)
+			ct.Log.Error(fmt.Sprintf("Failed in sendSuccess. %v", err))
 		} else {
 			successRetryCounter++
-			ct.Log.Warnf("Failed in sendSuccess. %v, retry counter: %d", err, successRetryCounter)
+			ct.Log.Warn(fmt.Sprintf("Failed in sendSuccess. %v, retry counter: %d", err, successRetryCounter))
 			time.Sleep(5 * time.Second)
 			ct.sendSuccess(jsonString)
 		}
@@ -189,15 +189,15 @@ func (ct *CallbackTask) sendFailure(errMsg error) {
 	})
 	if err != nil {
 		if failureRetryCounter == SEND_FAILURE_RETRY {
-			ct.Log.Fatalf("Failed in sendFailure. %v", err)
+			ct.Log.Error(fmt.Sprintf("Failed in sendFailure. %v", err))
 		} else {
 			failureRetryCounter++
-			ct.Log.Warnf("Failed in sendFailure. %v, retry counter: %d", err, failureRetryCounter)
+			ct.Log.Warn(fmt.Sprintf("Failed in sendFailure. %v, retry counter: %d", err, failureRetryCounter))
 			time.Sleep(5 * time.Second)
 			ct.sendFailure(errMsg)
 		}
 	} else {
-		ct.Log.Errorf("Successfully sent SendTaskFailure to Step Functions. Error message: %s", errMsg.Error())
+		ct.Log.Error(fmt.Sprintf("Successfully sent SendTaskFailure to Step Functions. Error message: %s", errMsg.Error()))
 	}
 }
 
@@ -212,7 +212,7 @@ func (ct *CallbackTask) Run() {
 	interval, err := time.ParseDuration(ct.HBInterval)
 	if err != nil {
 		ct.sendFailure(err)
-		ct.Log.Fatalf("Failed to Parse Heartbeat Duration. %v", err)
+		ct.Log.Error(fmt.Sprintf("Failed to Parse Heartbeat Duration. %v", err))
 	}
 	ct.hbTicker = time.NewTicker(interval)
 	ct.siTicker = time.NewTicker(110 * time.Second)
@@ -234,7 +234,7 @@ func (ct *CallbackTask) Run() {
 			case callbackOutput := <-ct.returnChan:
 				if callbackOutput.Err != nil {
 					ct.sendFailure(callbackOutput.Err)
-					ct.Log.Fatalf("%v", callbackOutput.Err)
+					ct.Log.Error(fmt.Sprintf("%v", callbackOutput.Err))
 					wg.Done()
 				}
 				ct.sendSuccess(callbackOutput.JsonOutput)
