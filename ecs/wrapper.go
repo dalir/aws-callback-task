@@ -120,7 +120,9 @@ func (ct *CallbackTask) getInstanceAction(token string) (spotMsg InterruptionMgs
 	if err != nil {
 		return
 	}
-	json.Unmarshal(msg, &spotMsg)
+	if err = json.Unmarshal(msg, &spotMsg); err != nil {
+		return
+	}
 	return
 }
 
