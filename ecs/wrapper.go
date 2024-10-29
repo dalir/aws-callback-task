@@ -205,6 +205,11 @@ func (ct *CallbackTask) sendFailure(errMsg error) {
 // checking for spot interruptions, and handling the task execution result.
 func (ct *CallbackTask) Run() {
 	ct.sfnClient = sfn.NewFromConfig(ct.AWSCfg)
+	if ct.Log == nil {
+		slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+			Level: slog.LevelDebug,
+		}))
+	}
 	ct.returnChan = make(chan CallbackOutput, 10)
 	ct.sigsChan = make(chan os.Signal, 1)
 	signal.Notify(ct.sigsChan, syscall.SIGTERM)
