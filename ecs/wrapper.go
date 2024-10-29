@@ -1,11 +1,11 @@
 package ecs
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/sfn"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/sfn"
 	"github.com/sirupsen/logrus"
 	"io"
 	"net/http"
@@ -39,12 +39,12 @@ type CallbackOutput struct {
 // CallbackTask handles the execution of a task that communicates
 // with AWS Step Functions and handles spot instance interruptions.
 type CallbackTask struct {
-	Log                *logrus.Entry       // Logger for logging events.
-	Token              string              // Task token for communicating with AWS Step Functions.
-	HBInterval         string              // Heartbeat interval duration string. A duration string is a possibly signed sequence of decimal numbers, each with optional fraction and a unit suffix, such as "300ms", "-1.5h" or "2h45m". Valid time units are "ns", "us" (or "µs"), "ms", "s", "m", "h".
-	CheckSpotInterrupt bool                // Flag to check for spot instance interruptions.
-	Sess               *session.Session    // AWS session for making API requests.
-	sfnClient          *sfn.SFN            // AWS Step Functions client.
+	Log                *logrus.Entry // Logger for logging events.
+	Token              string        // Task token for communicating with AWS Step Functions.
+	HBInterval         string        // Heartbeat interval duration string. A duration string is a possibly signed sequence of decimal numbers, each with optional fraction and a unit suffix, such as "300ms", "-1.5h" or "2h45m". Valid time units are "ns", "us" (or "µs"), "ms", "s", "m", "h".
+	CheckSpotInterrupt bool          // Flag to check for spot instance interruptions.
+	AWSCfg             aws.Config
+	sfnClient          *sfn.Client         // AWS Step Functions client.
 	hbTicker           *time.Ticker        // Ticker for sending heartbeats.
 	siTicker           *time.Ticker        // Ticker for checking spot interruptions.
 	fn                 Fn                  // Function to be executed by the task.
@@ -60,7 +60,7 @@ func (ct *CallbackTask) RegisterWorkerFunc(fn Fn) {
 // sendHeartbeat sends a heartbeat signal to AWS Step Functions to prevent
 // the task from timing out. Retries up to HB_TICKER_RETRY times if it fails.
 func (ct *CallbackTask) sendHeartbeat() {
-	_, err := ct.sfnClient.SendTaskHeartbeat(&sfn.SendTaskHeartbeatInput{
+	_, err := ct.sfnClient.SendTaskHeartbeat(context.TODO(), &sfn.SendTaskHeartbeatInput{
 		TaskToken: aws.String(ct.Token),
 	})
 	if err != nil {
@@ -160,7 +160,7 @@ func (ct *CallbackTask) sendSuccess(jsonString string) {
 	if jsonString == "" {
 		jsonString = `{"Report": "the task is completed successfully"}`
 	}
-	_, err := ct.sfnClient.SendTaskSuccess(&sfn.SendTaskSuccessInput{
+	_, err := ct.sfnClient.SendTaskSuccess(context.TODO(), &sfn.SendTaskSuccessInput{
 		Output:    aws.String(jsonString),
 		TaskToken: aws.String(ct.Token),
 	})
@@ -181,7 +181,7 @@ func (ct *CallbackTask) sendSuccess(jsonString string) {
 // sendFailure sends a failure signal to AWS Step Functions with the provided
 // error message. Retries up to SEND_FAILURE_RETRY times if it fails.
 func (ct *CallbackTask) sendFailure(errMsg error) {
-	_, err := ct.sfnClient.SendTaskFailure(&sfn.SendTaskFailureInput{
+	_, err := ct.sfnClient.SendTaskFailure(context.TODO(), &sfn.SendTaskFailureInput{
 		Error:     aws.String(errMsg.Error()),
 		TaskToken: aws.String(ct.Token),
 	})
@@ -202,7 +202,7 @@ func (ct *CallbackTask) sendFailure(errMsg error) {
 // Run starts the execution of the CallbackTask, including sending heartbeats,
 // checking for spot interruptions, and handling the task execution result.
 func (ct *CallbackTask) Run() {
-	ct.sfnClient = sfn.New(ct.Sess)
+	ct.sfnClient = sfn.NewFromConfig(ct.AWSCfg)
 	ct.returnChan = make(chan CallbackOutput, 10)
 	ct.sigsChan = make(chan os.Signal, 1)
 	signal.Notify(ct.sigsChan, syscall.SIGTERM)
