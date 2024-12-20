@@ -120,7 +120,7 @@ func (ct *CallbackTask) getInstanceAction(token string) (spotMsg InterruptionMgs
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusNotFound {
-		err = fmt.Errorf("no Spot Instance action is scheduled")
+		err = fmt.Errorf("status not found")
 		return
 	}
 	msg, err := io.ReadAll(resp.Body)
@@ -142,7 +142,11 @@ func (ct *CallbackTask) checkSpotInterruption() {
 	}
 	spotMsg, err := ct.getInstanceAction(token)
 	if err != nil {
-		ct.Log.Warn(fmt.Sprintf("Failed to retrieve Metadata Instance Action. %v", err))
+		if err.Error() == "status not found" {
+			ct.Log.Debug("No Spot Instance action is scheduled")
+		} else {
+			ct.Log.Warn(fmt.Sprintf("Failed to retrieve Metadata Instance Action. %v", err))
+		}
 	} else {
 		ct.Log.Debug("Successfully checked Spot Instance Interruption")
 	}
