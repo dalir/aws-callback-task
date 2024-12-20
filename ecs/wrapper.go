@@ -98,6 +98,9 @@ func (ct *CallbackTask) getMetadataToken() (token string, err error) {
 	}
 	defer resp.Body.Close()
 	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return
+	}
 	token = string(body)
 	return
 }
@@ -116,6 +119,10 @@ func (ct *CallbackTask) getInstanceAction(token string) (spotMsg InterruptionMgs
 		return
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		err = fmt.Errorf("no Spot Instance action is scheduled")
+		return
+	}
 	msg, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return
