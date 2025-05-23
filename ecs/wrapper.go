@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/service/sfn"
 	"io"
 	"log/slog"
 	"net/http"
@@ -14,6 +12,9 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/sfn"
 )
 
 // Fn defines a function type that returns a string and an error.
@@ -65,7 +66,7 @@ func (ct *CallbackTask) sendHeartbeat() {
 	})
 	if err != nil {
 		hbRetryCounter++
-		ct.Log.Warn(fmt.Sprintf("SendTaskHeartbeat failed. Retry number: %d, Error: %v", hbRetryCounter, err))
+		ct.Log.Warn("SendTaskHeartbeat failed", "retry", hbRetryCounter, "error", err)
 		if hbRetryCounter == HB_TICKER_RETRY {
 			ct.returnChan <- CallbackOutput{
 				Err: err,
@@ -138,14 +139,14 @@ func (ct *CallbackTask) getInstanceAction(token string) (spotMsg InterruptionMgs
 func (ct *CallbackTask) checkSpotInterruption() {
 	token, err := ct.getMetadataToken()
 	if err != nil {
-		ct.Log.Warn(fmt.Sprintf("Failed to retrieve Metadata Token. %v", err))
+		ct.Log.Warn("Failed to retrieve Metadata Token", "error", err)
 	}
 	spotMsg, err := ct.getInstanceAction(token)
 	if err != nil {
 		if err.Error() == "status not found" {
 			ct.Log.Debug("No Spot Instance action is scheduled")
 		} else {
-			ct.Log.Warn(fmt.Sprintf("Failed to retrieve Metadata Instance Action. %v", err))
+			ct.Log.Warn("Failed to retrieve Metadata Instance Action", "error", err)
 		}
 	} else {
 		ct.Log.Debug("Successfully checked Spot Instance Interruption")
@@ -160,7 +161,7 @@ func (ct *CallbackTask) checkSpotInterruption() {
 // spotInterrupted handles the event when a spot instance is interrupted.
 // It logs the interruption and returns an error via the callback channel.
 func (ct *CallbackTask) spotInterrupted(message string) {
-	ct.Log.Warn(fmt.Sprintf("Spot Interruption Forced: %s", message))
+	ct.Log.Warn("Spot Interruption Forced", "action", message)
 	err := fmt.Errorf("InstanceInterruption")
 	ct.returnChan <- CallbackOutput{
 		Err: err,
@@ -179,10 +180,10 @@ func (ct *CallbackTask) sendSuccess(jsonString string) {
 	})
 	if err != nil {
 		if successRetryCounter == SEND_SUCCESS_RETRY {
-			ct.Log.Error(fmt.Sprintf("Failed in sendSuccess. %v", err))
+			ct.Log.Error("Failed in sendSuccess", "error", err)
 		} else {
 			successRetryCounter++
-			ct.Log.Warn(fmt.Sprintf("Failed in sendSuccess. %v, retry counter: %d", err, successRetryCounter))
+			ct.Log.Warn("Failed in sendSuccess", "error", err, "retry counter", successRetryCounter)
 			time.Sleep(5 * time.Second)
 			ct.sendSuccess(jsonString)
 		}
@@ -200,15 +201,15 @@ func (ct *CallbackTask) sendFailure(errMsg error) {
 	})
 	if err != nil {
 		if failureRetryCounter == SEND_FAILURE_RETRY {
-			ct.Log.Error(fmt.Sprintf("Failed in sendFailure. %v", err))
+			ct.Log.Error("Failed in sendFailure", "error", err)
 		} else {
 			failureRetryCounter++
-			ct.Log.Warn(fmt.Sprintf("Failed in sendFailure. %v, retry counter: %d", err, failureRetryCounter))
+			ct.Log.Warn("Failed in sendFailure", "error", err, "retry counter", failureRetryCounter)
 			time.Sleep(5 * time.Second)
 			ct.sendFailure(errMsg)
 		}
 	} else {
-		ct.Log.Error(fmt.Sprintf("Successfully sent SendTaskFailure to Step Functions. Error message: %s", errMsg.Error()))
+		ct.Log.Error("Successfully sent SendTaskFailure to Step Functions", "error message", errMsg.Error())
 	}
 }
 
@@ -217,7 +218,7 @@ func (ct *CallbackTask) sendFailure(errMsg error) {
 func (ct *CallbackTask) Run() {
 	ct.sfnClient = sfn.NewFromConfig(ct.AWSCfg)
 	if ct.Log == nil {
-		slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+		ct.Log = slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
 			Level: slog.LevelDebug,
 		}))
 	}
@@ -228,7 +229,7 @@ func (ct *CallbackTask) Run() {
 	interval, err := time.ParseDuration(ct.HBInterval)
 	if err != nil {
 		ct.sendFailure(err)
-		ct.Log.Error(fmt.Sprintf("Failed to Parse Heartbeat Duration. %v", err))
+		ct.Log.Error("Failed to Parse Heartbeat Duration", "error", err)
 	}
 	ct.hbTicker = time.NewTicker(interval)
 	ct.siTicker = time.NewTicker(110 * time.Second)
@@ -250,7 +251,7 @@ func (ct *CallbackTask) Run() {
 			case callbackOutput := <-ct.returnChan:
 				if callbackOutput.Err != nil {
 					ct.sendFailure(callbackOutput.Err)
-					ct.Log.Error(fmt.Sprintf("%v", callbackOutput.Err))
+					ct.Log.Error("Worker function error", "error", callbackOutput.Err)
 					wg.Done()
 				}
 				ct.sendSuccess(callbackOutput.JsonOutput)
