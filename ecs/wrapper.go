@@ -16,9 +16,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sfn"
 )
 
-// import "github.com/dalir/aws-callback-task/ecs"
-// ... uses ecs.Logger, etc.
-
 // Fn defines a function type that returns a string and an error.
 type Fn func(ctx context.Context) (string, error)
 

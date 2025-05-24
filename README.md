@@ -85,3 +85,10 @@ func main() {
 ## License
 
 This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
+
+## Import Example
+
+```go
+import "github.com/dalir/aws-callback-task/ecs"
+// ... uses ecs.Logger, etc.
+```
