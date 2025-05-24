@@ -8,27 +8,19 @@ type Logger interface {
 	Error(msg string, args ...any)
 }
 
-// Slogger is a minimal interface matching the required slog.Logger methods.
-type Slogger interface {
-	Debug(msg string, args ...any)
-	Info(msg string, args ...any)
-	Warn(msg string, args ...any)
-	Error(msg string, args ...any)
-}
-
-// SlogAdapter adapts a Slogger to the Logger interface.
+// SlogAdapter adapts a Logger to the Logger interface.
 type SlogAdapter struct {
-	slogger Slogger
+	logger Logger
 }
 
-func NewSlogAdapter(slogger Slogger) *SlogAdapter {
-	return &SlogAdapter{slogger: slogger}
+func NewSlogAdapter(logger Logger) *SlogAdapter {
+	return &SlogAdapter{logger: logger}
 }
 
-func (a *SlogAdapter) Debug(msg string, args ...any) { a.slogger.Debug(msg, args...) }
-func (a *SlogAdapter) Info(msg string, args ...any)  { a.slogger.Info(msg, args...) }
-func (a *SlogAdapter) Warn(msg string, args ...any)  { a.slogger.Warn(msg, args...) }
-func (a *SlogAdapter) Error(msg string, args ...any) { a.slogger.Error(msg, args...) }
+func (a *SlogAdapter) Debug(msg string, args ...any) { a.logger.Debug(msg, args...) }
+func (a *SlogAdapter) Info(msg string, args ...any)  { a.logger.Info(msg, args...) }
+func (a *SlogAdapter) Warn(msg string, args ...any)  { a.logger.Warn(msg, args...) }
+func (a *SlogAdapter) Error(msg string, args ...any) { a.logger.Error(msg, args...) }
 
 // noopLogger is a Logger implementation that does nothing (for default fallback)
 type noopLogger struct{}

@@ -29,11 +29,10 @@ Warn(msg string, args ...any)
 Error(msg string, args ...any)
 ```
 
-A convenience adapter for Go's slog is provided, but you must pass a logger that implements the required methods (Debug, Info, Warn, Error):
+A convenience adapter for Go's slog is provided. You can wrap any logger that implements the required methods (Debug, Info, Warn, Error):
 
 ```go
-// Wrap your slog.Logger with ecs.NewSlogAdapter
-// Your slog.Logger must implement Debug, Info, Warn, and Error methods.
+// Wrap your slog.Logger (or any compatible logger) with ecs.NewSlogAdapter
 logger := ecs.NewSlogAdapter(slog.Default())
 ```
 
