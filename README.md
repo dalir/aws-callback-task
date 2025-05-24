@@ -3,16 +3,40 @@
 A Go package for running callback tasks that interact with AWS Step Functions, with built-in support for heartbeats and spot instance interruption handling. Designed for use in ECS or EC2 environments where Step Functions' callback patterns are required.
 
 ## Features
-- Sends heartbeats to AWS Step Functions to prevent task timeout
-- Handles spot instance interruption notifications (EC2 Spot/Fargate)
-- Retries on failure for heartbeats, success, and failure signals
-- Simple function registration and execution pattern
+- **Heartbeat Support:** Automatically sends heartbeats to AWS Step Functions to prevent task timeout.
+- **Spot Instance Interruption Handling:** Detects and gracefully handles EC2 Spot and Fargate interruption notifications.
+- **Retry Logic:** Retries heartbeats, success, and failure signals with exponential backoff.
+- **Context Propagation:** All operations are context-aware, supporting cancellation and timeouts.
+- **Pluggable Logging:** Use any logger that implements a simple interface, or use the built-in no-op logger.
+- **Simple Worker Registration:** Register your own function to be executed as the callback task.
+- **Minimal Dependencies:** Only depends on AWS SDK v2 and standard Go libraries.
 
 ## Installation
 
 ```
 go get github.com/dalir/aws-callback-task
 ```
+
+## Logger Integration
+
+This package is decoupled from any specific logging library. You can use any logger that implements the following interface:
+
+```go
+// ecs.Logger interface
+Debug(msg string, args ...any)
+Info(msg string, args ...any)
+Warn(msg string, args ...any)
+Error(msg string, args ...any)
+```
+
+A convenience adapter for Go's slog is provided:
+
+```go
+// Wrap your slog.Logger with ecs.NewSlogAdapter
+logger := ecs.NewSlogAdapter(slog.Default())
+```
+
+If you do not provide a logger, a no-op logger will be used and no logs will be emitted.
 
 ## Minimal Usage Example
 
@@ -33,9 +57,10 @@ func main() {
         panic(err)
     }
 
-    // Create the callback task
+    // Create the callback task with slog logger
+    logger := ecs.NewSlogAdapter(slog.Default())
     task := &ecs.CallbackTask{
-        Log:        slog.Default(),
+        Log:        logger, // Any logger implementing ecs.Logger
         Token:      "<STEP_FUNCTIONS_TASK_TOKEN>",
         HBInterval: "60s", // Heartbeat every 60 seconds
         AWSCfg:     cfg,

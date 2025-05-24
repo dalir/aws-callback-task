@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -16,6 +15,9 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/sfn"
 )
+
+// import "github.com/dalir/aws-callback-task/ecs"
+// ... uses ecs.Logger, etc.
 
 // Fn defines a function type that returns a string and an error.
 type Fn func(ctx context.Context) (string, error)
@@ -40,10 +42,10 @@ type CallbackOutput struct {
 // CallbackTask handles the execution of a task that communicates
 // with AWS Step Functions and handles spot instance interruptions.
 type CallbackTask struct {
-	Log                *slog.Logger // Logger for logging events.
-	Token              string       // Task token for communicating with AWS Step Functions.
-	HBInterval         string       // Heartbeat interval duration string. A duration string is a possibly signed sequence of decimal numbers, each with optional fraction and a unit suffix, such as "300ms", "-1.5h" or "2h45m". Valid time units are "ns", "us" (or "µs"), "ms", "s", "m", "h".
-	CheckSpotInterrupt bool         // Flag to check for spot instance interruptions.
+	Log                Logger // Logger for logging events.
+	Token              string // Task token for communicating with AWS Step Functions.
+	HBInterval         string // Heartbeat interval duration string. A duration string is a possibly signed sequence of decimal numbers, each with optional fraction and a unit suffix, such as "300ms", "-1.5h" or "2h45m". Valid time units are "ns", "us" (or "µs"), "ms", "s", "m", "h".
+	CheckSpotInterrupt bool   // Flag to check for spot instance interruptions.
 	AWSCfg             aws.Config
 	sfnClient          *sfn.Client         // AWS Step Functions client.
 	hbTicker           *time.Ticker        // Ticker for sending heartbeats.
@@ -217,10 +219,9 @@ func (ct *CallbackTask) sendFailure(ctx context.Context, errMsg error) {
 // checking for spot interruptions, and handling the task execution result.
 func (ct *CallbackTask) Run(ctx context.Context) {
 	ct.sfnClient = sfn.NewFromConfig(ct.AWSCfg)
+	// If no logger is provided, use a no-op logger
 	if ct.Log == nil {
-		ct.Log = slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-			Level: slog.LevelDebug,
-		}))
+		ct.Log = &noopLogger{}
 	}
 	ct.returnChan = make(chan CallbackOutput, 10)
 	ct.sigsChan = make(chan os.Signal, 1)
