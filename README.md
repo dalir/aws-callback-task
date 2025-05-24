@@ -20,6 +20,7 @@ go get github.com/dalir/aws-callback-task
 package main
 
 import (
+    "context"
     "github.com/dalir/aws-callback-task/ecs"
     "github.com/aws/aws-sdk-go-v2/config"
     "log/slog"
@@ -41,13 +42,13 @@ func main() {
     }
 
     // Register the function to run
-    task.RegisterWorkerFunc(func() (string, error) {
-        // Your task logic here
+    task.RegisterWorkerFunc(func(ctx context.Context) (string, error) {
+        // Your task logic here, now context-aware
         return `{"result": "success"}`, nil
     })
 
     // Run the task (blocks until completion)
-    task.Run()
+    task.Run(context.TODO())
 }
 ```
 

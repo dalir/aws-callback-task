@@ -18,7 +18,7 @@ import (
 )
 
 // Fn defines a function type that returns a string and an error.
-type Fn func() (string, error)
+type Fn func(ctx context.Context) (string, error)
 
 // Constants for retry attempts.
 const HB_TICKER_RETRY = 3
@@ -60,8 +60,8 @@ func (ct *CallbackTask) RegisterWorkerFunc(fn Fn) {
 
 // sendHeartbeat sends a heartbeat signal to AWS Step Functions to prevent
 // the task from timing out. Retries up to HB_TICKER_RETRY times if it fails.
-func (ct *CallbackTask) sendHeartbeat() {
-	_, err := ct.sfnClient.SendTaskHeartbeat(context.TODO(), &sfn.SendTaskHeartbeatInput{
+func (ct *CallbackTask) sendHeartbeat(ctx context.Context) {
+	_, err := ct.sfnClient.SendTaskHeartbeat(ctx, &sfn.SendTaskHeartbeatInput{
 		TaskToken: aws.String(ct.Token),
 	})
 	if err != nil {
@@ -86,9 +86,9 @@ type InterruptionMgs struct {
 
 // getMetadataToken retrieves the metadata token required for subsequent
 // metadata requests to the EC2 instance.
-func (ct *CallbackTask) getMetadataToken() (token string, err error) {
+func (ct *CallbackTask) getMetadataToken(ctx context.Context) (token string, err error) {
 	client := &http.Client{}
-	req, err := http.NewRequest("PUT", "http://169.254.169.254/latest/api/token", nil)
+	req, err := http.NewRequestWithContext(ctx, "PUT", "http://169.254.169.254/latest/api/token", nil)
 	if err != nil {
 		return
 	}
@@ -108,9 +108,9 @@ func (ct *CallbackTask) getMetadataToken() (token string, err error) {
 
 // getInstanceAction retrieves the spot instance interruption action
 // from the EC2 instance metadata service.
-func (ct *CallbackTask) getInstanceAction(token string) (spotMsg InterruptionMgs, err error) {
+func (ct *CallbackTask) getInstanceAction(ctx context.Context, token string) (spotMsg InterruptionMgs, err error) {
 	client := &http.Client{}
-	req, err := http.NewRequest("GET", "http://169.254.169.254/latest/meta-data/spot/instance-action", nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", "http://169.254.169.254/latest/meta-data/spot/instance-action", nil)
 	if err != nil {
 		return
 	}
@@ -136,12 +136,12 @@ func (ct *CallbackTask) getInstanceAction(token string) (spotMsg InterruptionMgs
 
 // checkSpotInterruption checks if the current EC2 instance is marked for
 // interruption as part of a spot instance termination.
-func (ct *CallbackTask) checkSpotInterruption() {
-	token, err := ct.getMetadataToken()
+func (ct *CallbackTask) checkSpotInterruption(ctx context.Context) {
+	token, err := ct.getMetadataToken(ctx)
 	if err != nil {
 		ct.Log.Warn("Failed to retrieve Metadata Token", "error", err)
 	}
-	spotMsg, err := ct.getInstanceAction(token)
+	spotMsg, err := ct.getInstanceAction(ctx, token)
 	if err != nil {
 		if err.Error() == "status not found" {
 			ct.Log.Debug("No Spot Instance action is scheduled")
@@ -170,11 +170,11 @@ func (ct *CallbackTask) spotInterrupted(message string) {
 
 // sendSuccess sends a success signal to AWS Step Functions with the provided
 // JSON string as the output. Retries up to SEND_SUCCESS_RETRY times if it fails.
-func (ct *CallbackTask) sendSuccess(jsonString string) {
+func (ct *CallbackTask) sendSuccess(ctx context.Context, jsonString string) {
 	if jsonString == "" {
 		jsonString = `{"Report": "the task is completed successfully"}`
 	}
-	_, err := ct.sfnClient.SendTaskSuccess(context.TODO(), &sfn.SendTaskSuccessInput{
+	_, err := ct.sfnClient.SendTaskSuccess(ctx, &sfn.SendTaskSuccessInput{
 		Output:    aws.String(jsonString),
 		TaskToken: aws.String(ct.Token),
 	})
@@ -185,7 +185,7 @@ func (ct *CallbackTask) sendSuccess(jsonString string) {
 			successRetryCounter++
 			ct.Log.Warn("Failed in sendSuccess", "error", err, "retry counter", successRetryCounter)
 			time.Sleep(5 * time.Second)
-			ct.sendSuccess(jsonString)
+			ct.sendSuccess(ctx, jsonString)
 		}
 	} else {
 		ct.Log.Info("Successfully sent SendTaskSuccess to Step Functions")
@@ -194,8 +194,8 @@ func (ct *CallbackTask) sendSuccess(jsonString string) {
 
 // sendFailure sends a failure signal to AWS Step Functions with the provided
 // error message. Retries up to SEND_FAILURE_RETRY times if it fails.
-func (ct *CallbackTask) sendFailure(errMsg error) {
-	_, err := ct.sfnClient.SendTaskFailure(context.TODO(), &sfn.SendTaskFailureInput{
+func (ct *CallbackTask) sendFailure(ctx context.Context, errMsg error) {
+	_, err := ct.sfnClient.SendTaskFailure(ctx, &sfn.SendTaskFailureInput{
 		Error:     aws.String(errMsg.Error()),
 		TaskToken: aws.String(ct.Token),
 	})
@@ -206,7 +206,7 @@ func (ct *CallbackTask) sendFailure(errMsg error) {
 			failureRetryCounter++
 			ct.Log.Warn("Failed in sendFailure", "error", err, "retry counter", failureRetryCounter)
 			time.Sleep(5 * time.Second)
-			ct.sendFailure(errMsg)
+			ct.sendFailure(ctx, errMsg)
 		}
 	} else {
 		ct.Log.Error("Successfully sent SendTaskFailure to Step Functions", "error message", errMsg.Error())
@@ -215,7 +215,7 @@ func (ct *CallbackTask) sendFailure(errMsg error) {
 
 // Run starts the execution of the CallbackTask, including sending heartbeats,
 // checking for spot interruptions, and handling the task execution result.
-func (ct *CallbackTask) Run() {
+func (ct *CallbackTask) Run(ctx context.Context) {
 	ct.sfnClient = sfn.NewFromConfig(ct.AWSCfg)
 	if ct.Log == nil {
 		ct.Log = slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
@@ -228,7 +228,7 @@ func (ct *CallbackTask) Run() {
 
 	interval, err := time.ParseDuration(ct.HBInterval)
 	if err != nil {
-		ct.sendFailure(err)
+		ct.sendFailure(ctx, err)
 		ct.Log.Error("Failed to Parse Heartbeat Duration", "error", err)
 	}
 	ct.hbTicker = time.NewTicker(interval)
@@ -237,7 +237,7 @@ func (ct *CallbackTask) Run() {
 	defer ct.siTicker.Stop()
 
 	go func() {
-		output, err := ct.fn()
+		output, err := ct.fn(ctx)
 		ct.returnChan <- CallbackOutput{
 			Err:        err,
 			JsonOutput: output,
@@ -250,17 +250,17 @@ func (ct *CallbackTask) Run() {
 			select {
 			case callbackOutput := <-ct.returnChan:
 				if callbackOutput.Err != nil {
-					ct.sendFailure(callbackOutput.Err)
+					ct.sendFailure(ctx, callbackOutput.Err)
 					ct.Log.Error("Worker function error", "error", callbackOutput.Err)
 					wg.Done()
 				}
-				ct.sendSuccess(callbackOutput.JsonOutput)
+				ct.sendSuccess(ctx, callbackOutput.JsonOutput)
 				wg.Done()
 			case <-ct.hbTicker.C:
-				go ct.sendHeartbeat()
+				go ct.sendHeartbeat(ctx)
 			case <-ct.siTicker.C:
 				if ct.CheckSpotInterrupt && (os.Getenv("AWS_EXECUTION_ENV") == "AWS_ECS_EC2") {
-					go ct.checkSpotInterruption()
+					go ct.checkSpotInterruption(ctx)
 				}
 			case sig := <-ct.sigsChan:
 				if ct.CheckSpotInterrupt && (os.Getenv("AWS_EXECUTION_ENV") == "AWS_ECS_FARGATE") {
