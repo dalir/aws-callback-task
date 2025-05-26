@@ -23,20 +23,79 @@ This package is decoupled from any specific logging library. You can use any log
 
 ```go
 // ecs.Logger interface
-Debug(msg string, args ...any)
-Info(msg string, args ...any)
-Warn(msg string, args ...any)
-Error(msg string, args ...any)
-```
-
-A convenience adapter for Go's slog is provided. You can wrap any logger that implements the required methods (Debug, Info, Warn, Error):
-
-```go
-// Wrap your slog.Logger (or any compatible logger) with ecs.NewSlogAdapter
-logger := ecs.NewSlogAdapter(slog.Default())
+type Logger interface {
+    Debug(msg string, args ...any)
+    Info(msg string, args ...any)
+    Warn(msg string, args ...any)
+    Error(msg string, args ...any)
+}
 ```
 
 If you do not provide a logger, a no-op logger will be used and no logs will be emitted.
+
+### Ready-to-Use Logger Adapters
+
+Adapters are provided for popular logging libraries:
+
+- **zap** (go.uber.org/zap):
+  ```go
+  import "go.uber.org/zap"
+  import "github.com/dalir/aws-callback-task/ecs"
+  
+  zapLogger := zap.NewExample()
+  logger := ecs.NewZapLoggerAdapter(zapLogger)
+  task := &ecs.CallbackTask{Log: logger, ...}
+  ```
+- **logrus** (github.com/sirupsen/logrus):
+  ```go
+  import "github.com/sirupsen/logrus"
+  import "github.com/dalir/aws-callback-task/ecs"
+  
+  logrusLogger := logrus.New()
+  logger := ecs.NewLogrusLoggerAdapter(logrusLogger)
+  task := &ecs.CallbackTask{Log: logger, ...}
+  ```
+- **zerolog** (github.com/rs/zerolog):
+  ```go
+  import "github.com/rs/zerolog"
+  import "github.com/dalir/aws-callback-task/ecs"
+  
+  zerologLogger := zerolog.New(os.Stdout)
+  logger := ecs.NewZerologLoggerAdapter(zerologLogger)
+  task := &ecs.CallbackTask{Log: logger, ...}
+  ```
+- **slog** (log/slog, Go 1.21+):
+  ```go
+  import "log/slog"
+  import "github.com/dalir/aws-callback-task/ecs"
+  
+  logger := slog.Default()
+  task := &ecs.CallbackTask{Log: logger, ...}
+  ```
+
+## How to Create a Custom Logger Adapter
+
+If you use a different logging library, you can create your own adapter by implementing the `Logger` interface:
+
+```go
+type MyLoggerAdapter struct {
+    Logger *mylogger.Logger
+}
+
+func (l *MyLoggerAdapter) Debug(msg string, args ...any) { l.Logger.Debug(msg, args...) }
+func (l *MyLoggerAdapter) Info(msg string, args ...any)  { l.Logger.Info(msg, args...) }
+func (l *MyLoggerAdapter) Warn(msg string, args ...any)  { l.Logger.Warn(msg, args...) }
+func (l *MyLoggerAdapter) Error(msg string, args ...any) { l.Logger.Error(msg, args...) }
+```
+
+Then use your adapter:
+
+```go
+task := &ecs.CallbackTask{
+    Log: &MyLoggerAdapter{Logger: myLogger},
+    // ...
+}
+```
 
 ## Minimal Usage Example
 
@@ -57,8 +116,8 @@ func main() {
         panic(err)
     }
 
-    // Create the callback task with slog logger
-    logger := ecs.NewSlogAdapter(slog.Default())
+    // Use slog directly (Go 1.21+)
+    logger := slog.Default()
     task := &ecs.CallbackTask{
         Log:        logger, // Any logger implementing ecs.Logger
         Token:      "<STEP_FUNCTIONS_TASK_TOKEN>",
