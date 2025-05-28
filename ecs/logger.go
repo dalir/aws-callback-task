@@ -161,14 +161,14 @@ func NewStdLoggerAdapter(logger *log.Logger) *StdLoggerAdapter {
 }
 
 func (l *StdLoggerAdapter) Debug(msg string, args ...any) {
-	l.Logger.Printf("[DEBUG] %s", fmt.Sprintf(msg, args...))
+	l.Logger.Printf("[DEBUG] "+msg, args...)
 }
 func (l *StdLoggerAdapter) Info(msg string, args ...any) {
-	l.Logger.Printf("[INFO] %s", fmt.Sprintf(msg, args...))
+	l.Logger.Printf("[INFO] "+msg, args...)
 }
 func (l *StdLoggerAdapter) Warn(msg string, args ...any) {
-	l.Logger.Printf("[WARN] %s", fmt.Sprintf(msg, args...))
+	l.Logger.Printf("[WARN] "+msg, args...)
 }
 func (l *StdLoggerAdapter) Error(msg string, args ...any) {
-	l.Logger.Printf("[ERROR] %s", fmt.Sprintf(msg, args...))
+	l.Logger.Printf("[ERROR] "+msg, args...)
 }
