@@ -1,6 +1,7 @@
 package ecs
 
 import (
+	"fmt"
 	"log"
 
 	"github.com/rs/zerolog"
@@ -159,7 +160,15 @@ func NewStdLoggerAdapter(logger *log.Logger) *StdLoggerAdapter {
 	return &StdLoggerAdapter{Logger: logger}
 }
 
-func (l *StdLoggerAdapter) Debug(msg string, args ...any) { l.Logger.Printf("[DEBUG] "+msg, args...) }
-func (l *StdLoggerAdapter) Info(msg string, args ...any)  { l.Logger.Printf("[INFO] "+msg, args...) }
-func (l *StdLoggerAdapter) Warn(msg string, args ...any)  { l.Logger.Printf("[WARN] "+msg, args...) }
-func (l *StdLoggerAdapter) Error(msg string, args ...any) { l.Logger.Printf("[ERROR] "+msg, args...) }
+func (l *StdLoggerAdapter) Debug(msg string, args ...any) {
+	l.Logger.Printf("[DEBUG] %s", fmt.Sprintf(msg, args...))
+}
+func (l *StdLoggerAdapter) Info(msg string, args ...any) {
+	l.Logger.Printf("[INFO] %s", fmt.Sprintf(msg, args...))
+}
+func (l *StdLoggerAdapter) Warn(msg string, args ...any) {
+	l.Logger.Printf("[WARN] %s", fmt.Sprintf(msg, args...))
+}
+func (l *StdLoggerAdapter) Error(msg string, args ...any) {
+	l.Logger.Printf("[ERROR] %s", fmt.Sprintf(msg, args...))
+}
