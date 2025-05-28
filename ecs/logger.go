@@ -1,6 +1,8 @@
 package ecs
 
 import (
+	"log"
+
 	"github.com/rs/zerolog"
 	"github.com/sirupsen/logrus"
 	"go.uber.org/zap"
@@ -143,3 +145,19 @@ func (z *ZerologLoggerAdapter) Debug(msg string, args ...any) { z.Logger.Debug()
 func (z *ZerologLoggerAdapter) Info(msg string, args ...any)  { z.Logger.Info().Msg(msg) }
 func (z *ZerologLoggerAdapter) Warn(msg string, args ...any)  { z.Logger.Warn().Msg(msg) }
 func (z *ZerologLoggerAdapter) Error(msg string, args ...any) { z.Logger.Error().Msg(msg) }
+
+// StdLoggerAdapter adapts a standard library log.Logger to the Logger interface.
+// Requires: import "log"
+type StdLoggerAdapter struct {
+	Logger *log.Logger
+}
+
+// NewStdLoggerAdapter returns a Logger interface for a standard log.Logger.
+func NewStdLoggerAdapter(logger *log.Logger) *StdLoggerAdapter {
+	return &StdLoggerAdapter{Logger: logger}
+}
+
+func (l *StdLoggerAdapter) Debug(msg string, args ...any) { l.Logger.Printf("[DEBUG] "+msg, args...) }
+func (l *StdLoggerAdapter) Info(msg string, args ...any)  { l.Logger.Printf("[INFO] "+msg, args...) }
+func (l *StdLoggerAdapter) Warn(msg string, args ...any)  { l.Logger.Printf("[WARN] "+msg, args...) }
+func (l *StdLoggerAdapter) Error(msg string, args ...any) { l.Logger.Printf("[ERROR] "+msg, args...) }

@@ -72,6 +72,15 @@ Adapters are provided for popular logging libraries:
   logger := slog.Default()
   task := &ecs.CallbackTask{Log: logger, ...}
   ```
+- **standard log.Logger** (log):
+  ```go
+  import "log"
+  import "github.com/dalir/aws-callback-task/ecs"
+  
+  stdLogger := log.New(os.Stdout, "", log.LstdFlags)
+  logger := ecs.NewStdLoggerAdapter(stdLogger)
+  task := &ecs.CallbackTask{Log: logger, ...}
+  ```
 
 ## How to Create a Custom Logger Adapter
 
