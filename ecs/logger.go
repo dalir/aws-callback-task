@@ -92,6 +92,7 @@ func (n *noopLogger) Error(msg string, args ...any) {}
 
 // ZapLoggerAdapter adapts a *zap.Logger to the Logger interface.
 // Requires: import "go.uber.org/zap"
+// Note: The 'args' parameter is ignored. If you want to log structured fields, use zap.Fields directly in your own adapter.
 type ZapLoggerAdapter struct {
 	Logger *zap.Logger
 }
@@ -132,6 +133,7 @@ func (l *LogrusLoggerAdapter) Error(msg string, args ...any) {
 
 // ZerologLoggerAdapter adapts a zerolog.Logger to the Logger interface.
 // Requires: import "github.com/rs/zerolog"
+// Note: The 'args' parameter is ignored. If you want to log structured fields, use zerolog.Event methods directly in your own adapter.
 type ZerologLoggerAdapter struct {
 	Logger zerolog.Logger
 }
