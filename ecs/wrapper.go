@@ -12,6 +12,10 @@ import (
 	"syscall"
 	"time"
 
+	stdoutlog "go.opentelemetry.io/otel/exporters/stdout/stdoutlog"
+	log "go.opentelemetry.io/otel/log"
+	sdklog "go.opentelemetry.io/otel/sdk/log"
+
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/sfn"
 )
@@ -24,11 +28,6 @@ const HB_TICKER_RETRY = 3
 const SEND_SUCCESS_RETRY = 3
 const SEND_FAILURE_RETRY = 3
 
-// Global counters for retry attempts.
-var hbRetryCounter = 0
-var successRetryCounter = 0
-var failureRetryCounter = 0
-
 // CallbackOutput represents the output of a callback function,
 // including any error and the JSON string result.
 type CallbackOutput struct {
@@ -39,17 +38,20 @@ type CallbackOutput struct {
 // CallbackTask handles the execution of a task that communicates
 // with AWS Step Functions and handles spot instance interruptions.
 type CallbackTask struct {
-	Log                Logger // Logger for logging events.
-	Token              string // Task token for communicating with AWS Step Functions.
-	HBInterval         string // Heartbeat interval duration string. A duration string is a possibly signed sequence of decimal numbers, each with optional fraction and a unit suffix, such as "300ms", "-1.5h" or "2h45m". Valid time units are "ns", "us" (or "µs"), "ms", "s", "m", "h".
-	CheckSpotInterrupt bool   // Flag to check for spot instance interruptions.
+	Logger             log.Logger // OpenTelemetry logger for logging events. If nil, a default logger is created in Run().
+	Token              string     // Task token for communicating with AWS Step Functions.
+	HBInterval         string     // Heartbeat interval duration string. A duration string is a possibly signed sequence of decimal numbers, each with optional fraction and a unit suffix, such as "300ms", "-1.5h" or "2h45m". Valid time units are "ns", "us" (or "µs"), "ms", "s", "m", "h".
+	CheckSpotInterrupt bool       // Flag to check for spot instance interruptions.
 	AWSCfg             aws.Config
-	sfnClient          *sfn.Client         // AWS Step Functions client.
-	hbTicker           *time.Ticker        // Ticker for sending heartbeats.
-	siTicker           *time.Ticker        // Ticker for checking spot interruptions.
-	fn                 Fn                  // Function to be executed by the task.
-	returnChan         chan CallbackOutput // Channel for returning the result of the task.
-	sigsChan           chan os.Signal      // Channel for capturing OS signals.
+	sfnClient           *sfn.Client        // AWS Step Functions client.
+	hbTicker            *time.Ticker       // Ticker for sending heartbeats.
+	siTicker            *time.Ticker       // Ticker for checking spot interruptions.
+	fn                  Fn                 // Function to be executed by the task.
+	returnChan          chan CallbackOutput // Channel for returning the result of the task.
+	sigsChan            chan os.Signal      // Channel for capturing OS signals.
+	hbRetryCounter      int
+	successRetryCounter int
+	failureRetryCounter int
 }
 
 // RegisterWorkerFunc registers the function to be executed by the task.
@@ -64,15 +66,23 @@ func (ct *CallbackTask) sendHeartbeat(ctx context.Context) {
 		TaskToken: aws.String(ct.Token),
 	})
 	if err != nil {
-		hbRetryCounter++
-		ct.Log.Warn("SendTaskHeartbeat failed", "retry", hbRetryCounter, "error", err)
-		if hbRetryCounter == HB_TICKER_RETRY {
+		ct.hbRetryCounter++
+		rec := log.Record{}
+		rec.SetTimestamp(time.Now())
+		rec.SetSeverity(log.SeverityWarn)
+		rec.SetBody(log.StringValue("SendTaskHeartbeat failed"))
+		ct.Logger.Emit(ctx, rec)
+		if ct.hbRetryCounter == HB_TICKER_RETRY {
 			ct.returnChan <- CallbackOutput{
 				Err: err,
 			}
 		}
 	} else {
-		ct.Log.Debug("Successfully sent SendTaskHeartbeat to Step Functions")
+		rec := log.Record{}
+		rec.SetTimestamp(time.Now())
+		rec.SetSeverity(log.SeverityInfo)
+		rec.SetBody(log.StringValue("Successfully sent SendTaskHeartbeat to Step Functions"))
+		ct.Logger.Emit(ctx, rec)
 	}
 }
 
@@ -138,17 +148,33 @@ func (ct *CallbackTask) getInstanceAction(ctx context.Context, token string) (sp
 func (ct *CallbackTask) checkSpotInterruption(ctx context.Context) {
 	token, err := ct.getMetadataToken(ctx)
 	if err != nil {
-		ct.Log.Warn("Failed to retrieve Metadata Token", "error", err)
+		rec := log.Record{}
+		rec.SetTimestamp(time.Now())
+		rec.SetSeverity(log.SeverityWarn)
+		rec.SetBody(log.StringValue("Failed to retrieve Metadata Token"))
+		ct.Logger.Emit(ctx, rec)
 	}
 	spotMsg, err := ct.getInstanceAction(ctx, token)
 	if err != nil {
 		if err.Error() == "status not found" {
-			ct.Log.Debug("No Spot Instance action is scheduled")
+			rec := log.Record{}
+			rec.SetTimestamp(time.Now())
+			rec.SetSeverity(log.SeverityDebug)
+			rec.SetBody(log.StringValue("No Spot Instance action is scheduled"))
+			ct.Logger.Emit(ctx, rec)
 		} else {
-			ct.Log.Warn("Failed to retrieve Metadata Instance Action", "error", err)
+			rec := log.Record{}
+			rec.SetTimestamp(time.Now())
+			rec.SetSeverity(log.SeverityWarn)
+			rec.SetBody(log.StringValue("Failed to retrieve Metadata Instance Action"))
+			ct.Logger.Emit(ctx, rec)
 		}
 	} else {
-		ct.Log.Debug("Successfully checked Spot Instance Interruption")
+		rec := log.Record{}
+		rec.SetTimestamp(time.Now())
+		rec.SetSeverity(log.SeverityInfo)
+		rec.SetBody(log.StringValue("Successfully checked Spot Instance Interruption"))
+		ct.Logger.Emit(ctx, rec)
 	}
 
 	emptyMsg := InterruptionMgs{}
@@ -160,7 +186,11 @@ func (ct *CallbackTask) checkSpotInterruption(ctx context.Context) {
 // spotInterrupted handles the event when a spot instance is interrupted.
 // It logs the interruption and returns an error via the callback channel.
 func (ct *CallbackTask) spotInterrupted(message string) {
-	ct.Log.Warn("Spot Interruption Forced", "action", message)
+	rec := log.Record{}
+	rec.SetTimestamp(time.Now())
+	rec.SetSeverity(log.SeverityWarn)
+	rec.SetBody(log.StringValue("Spot Interruption Forced"))
+	ct.Logger.Emit(context.Background(), rec)
 	err := fmt.Errorf("InstanceInterruption")
 	ct.returnChan <- CallbackOutput{
 		Err: err,
@@ -178,16 +208,29 @@ func (ct *CallbackTask) sendSuccess(ctx context.Context, jsonString string) {
 		TaskToken: aws.String(ct.Token),
 	})
 	if err != nil {
-		if successRetryCounter == SEND_SUCCESS_RETRY {
-			ct.Log.Error("Failed in sendSuccess", "error", err)
+		if ct.successRetryCounter == SEND_SUCCESS_RETRY {
+			rec := log.Record{}
+			rec.SetTimestamp(time.Now())
+			rec.SetSeverity(log.SeverityError)
+			rec.SetBody(log.StringValue("Failed in sendSuccess"))
+			rec.AddAttributes(log.String("error", err.Error()))
+			ct.Logger.Emit(ctx, rec)
 		} else {
-			successRetryCounter++
-			ct.Log.Warn("Failed in sendSuccess", "error", err, "retry counter", successRetryCounter)
+			ct.successRetryCounter++
+			rec := log.Record{}
+			rec.SetTimestamp(time.Now())
+			rec.SetSeverity(log.SeverityWarn)
+			rec.SetBody(log.StringValue("Failed in sendSuccess (retry)"))
+			ct.Logger.Emit(ctx, rec)
 			time.Sleep(5 * time.Second)
 			ct.sendSuccess(ctx, jsonString)
 		}
 	} else {
-		ct.Log.Info("Successfully sent SendTaskSuccess to Step Functions")
+		rec := log.Record{}
+		rec.SetTimestamp(time.Now())
+		rec.SetSeverity(log.SeverityInfo)
+		rec.SetBody(log.StringValue("Successfully sent SendTaskSuccess to Step Functions"))
+		ct.Logger.Emit(ctx, rec)
 	}
 }
 
@@ -199,16 +242,24 @@ func (ct *CallbackTask) sendFailure(ctx context.Context, errMsg error) {
 		TaskToken: aws.String(ct.Token),
 	})
 	if err != nil {
-		if failureRetryCounter == SEND_FAILURE_RETRY {
-			ct.Log.Error("Failed in sendFailure", "error", err)
+		if ct.failureRetryCounter == SEND_FAILURE_RETRY {
+			rec := log.Record{}
+			rec.SetTimestamp(time.Now())
+			rec.SetSeverity(log.SeverityError)
+			rec.SetBody(log.StringValue("Failed in sendFailure"))
+			rec.AddAttributes(log.String("error", err.Error()))
+			ct.Logger.Emit(ctx, rec)
 		} else {
-			failureRetryCounter++
-			ct.Log.Warn("Failed in sendFailure", "error", err, "retry counter", failureRetryCounter)
+			ct.failureRetryCounter++
 			time.Sleep(5 * time.Second)
 			ct.sendFailure(ctx, errMsg)
 		}
 	} else {
-		ct.Log.Error("Successfully sent SendTaskFailure to Step Functions", "error message", errMsg.Error())
+		rec := log.Record{}
+		rec.SetTimestamp(time.Now())
+		rec.SetSeverity(log.SeverityError)
+		rec.SetBody(log.StringValue("Successfully sent SendTaskFailure to Step Functions"))
+		ct.Logger.Emit(ctx, rec)
 	}
 }
 
@@ -216,9 +267,13 @@ func (ct *CallbackTask) sendFailure(ctx context.Context, errMsg error) {
 // checking for spot interruptions, and handling the task execution result.
 func (ct *CallbackTask) Run(ctx context.Context) {
 	ct.sfnClient = sfn.NewFromConfig(ct.AWSCfg)
-	// If no logger is provided, use a no-op logger
-	if ct.Log == nil {
-		ct.Log = &noopLogger{}
+	if ct.Logger == nil {
+		exp, err := stdoutlog.New()
+		if err != nil {
+			panic("failed to create stdoutlog exporter: " + err.Error())
+		}
+		provider := sdklog.NewLoggerProvider(sdklog.WithProcessor(sdklog.NewBatchProcessor(exp)))
+		ct.Logger = provider.Logger("CallbackTask")
 	}
 	ct.returnChan = make(chan CallbackOutput, 10)
 	ct.sigsChan = make(chan os.Signal, 1)
@@ -227,7 +282,13 @@ func (ct *CallbackTask) Run(ctx context.Context) {
 	interval, err := time.ParseDuration(ct.HBInterval)
 	if err != nil {
 		ct.sendFailure(ctx, err)
-		ct.Log.Error("Failed to Parse Heartbeat Duration", "error", err)
+		rec := log.Record{}
+		rec.SetTimestamp(time.Now())
+		rec.SetSeverity(log.SeverityError)
+		rec.SetBody(log.StringValue("Failed to parse HBInterval"))
+		rec.AddAttributes(log.String("error", err.Error()))
+		ct.Logger.Emit(ctx, rec)
+		return
 	}
 	ct.hbTicker = time.NewTicker(interval)
 	ct.siTicker = time.NewTicker(110 * time.Second)
@@ -249,7 +310,12 @@ func (ct *CallbackTask) Run(ctx context.Context) {
 			case callbackOutput := <-ct.returnChan:
 				if callbackOutput.Err != nil {
 					ct.sendFailure(ctx, callbackOutput.Err)
-					ct.Log.Error("Worker function error", "error", callbackOutput.Err)
+					rec := log.Record{}
+					rec.SetTimestamp(time.Now())
+					rec.SetSeverity(log.SeverityError)
+					rec.SetBody(log.StringValue("Worker function error"))
+					rec.AddAttributes(log.String("error", callbackOutput.Err.Error()))
+					ct.Logger.Emit(ctx, rec)
 					wg.Done()
 				}
 				ct.sendSuccess(ctx, callbackOutput.JsonOutput)
