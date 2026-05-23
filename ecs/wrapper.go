@@ -179,18 +179,18 @@ func (ct *CallbackTask) checkSpotInterruption(ctx context.Context) {
 
 	emptyMsg := InterruptionMgs{}
 	if spotMsg != emptyMsg {
-		ct.spotInterrupted(spotMsg.Action)
+		ct.spotInterrupted(ctx, spotMsg.Action)
 	}
 }
 
 // spotInterrupted handles the event when a spot instance is interrupted.
 // It logs the interruption and returns an error via the callback channel.
-func (ct *CallbackTask) spotInterrupted(message string) {
+func (ct *CallbackTask) spotInterrupted(ctx context.Context, message string) {
 	rec := log.Record{}
 	rec.SetTimestamp(time.Now())
 	rec.SetSeverity(log.SeverityWarn)
 	rec.SetBody(log.StringValue("Spot Interruption Forced"))
-	ct.Logger.Emit(context.Background(), rec)
+	ct.Logger.Emit(ctx, rec)
 	err := fmt.Errorf("InstanceInterruption")
 	ct.returnChan <- CallbackOutput{
 		Err: err,
@@ -328,7 +328,7 @@ func (ct *CallbackTask) Run(ctx context.Context) {
 				}
 			case sig := <-ct.sigsChan:
 				if ct.CheckSpotInterrupt && (os.Getenv("AWS_EXECUTION_ENV") == "AWS_ECS_FARGATE") {
-					go ct.spotInterrupted(sig.String())
+					go ct.spotInterrupted(ctx, sig.String())
 				}
 			}
 		}
