@@ -78,6 +78,7 @@ func (ct *CallbackTask) sendHeartbeat(ctx context.Context) {
 			}
 		}
 	} else {
+		ct.hbRetryCounter = 0
 		rec := log.Record{}
 		rec.SetTimestamp(time.Now())
 		rec.SetSeverity(log.SeverityInfo)
