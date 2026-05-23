@@ -317,9 +317,11 @@ func (ct *CallbackTask) Run(ctx context.Context) {
 					rec.AddAttributes(log.String("error", callbackOutput.Err.Error()))
 					ct.Logger.Emit(ctx, rec)
 					wg.Done()
+					return
 				}
 				ct.sendSuccess(ctx, callbackOutput.JsonOutput)
 				wg.Done()
+				return
 			case <-ct.hbTicker.C:
 				go ct.sendHeartbeat(ctx)
 			case <-ct.siTicker.C:
