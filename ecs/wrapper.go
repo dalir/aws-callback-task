@@ -203,19 +203,21 @@ func (ct *CallbackTask) sendSuccess(ctx context.Context, jsonString string) {
 	if jsonString == "" {
 		jsonString = `{"Report": "the task is completed successfully"}`
 	}
-	_, err := ct.sfnClient.SendTaskSuccess(ctx, &sfn.SendTaskSuccessInput{
-		Output:    aws.String(jsonString),
-		TaskToken: aws.String(ct.Token),
-	})
-	if err != nil {
-		if ct.successRetryCounter == SEND_SUCCESS_RETRY {
-			rec := log.Record{}
-			rec.SetTimestamp(time.Now())
-			rec.SetSeverity(log.SeverityError)
-			rec.SetBody(log.StringValue("Failed in sendSuccess"))
-			rec.AddAttributes(log.String("error", err.Error()))
-			ct.Logger.Emit(ctx, rec)
-		} else {
+	for {
+		_, err := ct.sfnClient.SendTaskSuccess(ctx, &sfn.SendTaskSuccessInput{
+			Output:    aws.String(jsonString),
+			TaskToken: aws.String(ct.Token),
+		})
+		if err != nil {
+			if ct.successRetryCounter == SEND_SUCCESS_RETRY {
+				rec := log.Record{}
+				rec.SetTimestamp(time.Now())
+				rec.SetSeverity(log.SeverityError)
+				rec.SetBody(log.StringValue("Failed in sendSuccess"))
+				rec.AddAttributes(log.String("error", err.Error()))
+				ct.Logger.Emit(ctx, rec)
+				return
+			}
 			ct.successRetryCounter++
 			rec := log.Record{}
 			rec.SetTimestamp(time.Now())
@@ -223,43 +225,45 @@ func (ct *CallbackTask) sendSuccess(ctx context.Context, jsonString string) {
 			rec.SetBody(log.StringValue("Failed in sendSuccess (retry)"))
 			ct.Logger.Emit(ctx, rec)
 			time.Sleep(5 * time.Second)
-			ct.sendSuccess(ctx, jsonString)
+			continue
 		}
-	} else {
 		rec := log.Record{}
 		rec.SetTimestamp(time.Now())
 		rec.SetSeverity(log.SeverityInfo)
 		rec.SetBody(log.StringValue("Successfully sent SendTaskSuccess to Step Functions"))
 		ct.Logger.Emit(ctx, rec)
+		return
 	}
 }
 
 // sendFailure sends a failure signal to AWS Step Functions with the provided
 // error message. Retries up to SEND_FAILURE_RETRY times if it fails.
 func (ct *CallbackTask) sendFailure(ctx context.Context, errMsg error) {
-	_, err := ct.sfnClient.SendTaskFailure(ctx, &sfn.SendTaskFailureInput{
-		Error:     aws.String(errMsg.Error()),
-		TaskToken: aws.String(ct.Token),
-	})
-	if err != nil {
-		if ct.failureRetryCounter == SEND_FAILURE_RETRY {
-			rec := log.Record{}
-			rec.SetTimestamp(time.Now())
-			rec.SetSeverity(log.SeverityError)
-			rec.SetBody(log.StringValue("Failed in sendFailure"))
-			rec.AddAttributes(log.String("error", err.Error()))
-			ct.Logger.Emit(ctx, rec)
-		} else {
+	for {
+		_, err := ct.sfnClient.SendTaskFailure(ctx, &sfn.SendTaskFailureInput{
+			Error:     aws.String(errMsg.Error()),
+			TaskToken: aws.String(ct.Token),
+		})
+		if err != nil {
+			if ct.failureRetryCounter == SEND_FAILURE_RETRY {
+				rec := log.Record{}
+				rec.SetTimestamp(time.Now())
+				rec.SetSeverity(log.SeverityError)
+				rec.SetBody(log.StringValue("Failed in sendFailure"))
+				rec.AddAttributes(log.String("error", err.Error()))
+				ct.Logger.Emit(ctx, rec)
+				return
+			}
 			ct.failureRetryCounter++
 			time.Sleep(5 * time.Second)
-			ct.sendFailure(ctx, errMsg)
+			continue
 		}
-	} else {
 		rec := log.Record{}
 		rec.SetTimestamp(time.Now())
 		rec.SetSeverity(log.SeverityError)
 		rec.SetBody(log.StringValue("Successfully sent SendTaskFailure to Step Functions"))
 		ct.Logger.Emit(ctx, rec)
+		return
 	}
 }
 
